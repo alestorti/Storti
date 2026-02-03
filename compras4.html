@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Lista de Compras e Organização</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial; margin: 10px; }
+    .accordion { cursor: pointer; background: #4CAF50; color: white; padding: 12px; border: none; width: 100%; text-align: left; font-size: 18px; margin-top: 5px; }
+    .panel { display: none; padding: 10px; background: #f9f9f9; }
+    .item { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+    .controls { display: flex; align-items: center; }
+    button { padding: 6px 10px; margin: 0 4px; font-size: 16px; }
+    input { width: 70px; text-align: center; font-size: 16px; }
+    .total { font-weight: bold; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+<h2>Lista de Compras e Organização</h2>
+<label>Taxa de câmbio (1 BRL = X PYG): 
+  <input type="number" id="cambio" value="1500" onchange="updateTotals()">
+</label>
+
+<div id="lista"></div>
+
+<div class="total">
+  <p id="totalPYG">Total em Guarani: 0</p>
+  <p id="totalBRL">Total em Reais: R$ 0</p>
+</div>
+
+<button onclick="exportarXLSX()">Exportar para XLSX</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+const dados = {
+  "Sala / Espaços Comuns": ["Sofá ou poltronas","Mesa de centro","Estante ou rack para TV","Cortinas ou persianas","Tapetes","Luminárias ou abajures"],
+  "Quarto": ["Estrutura de cama","Lençóis","Fronhas","Edredons","Cobertores","Travesseiros extras","Cortinas blackout","Criado-mudo","Armário ou cômoda"],
+  "Cozinha": ["Fogão ou cooktop","Micro-ondas","Panelas (frigideira, média, grande, caçarola)","Talheres","Pratos","Copos","Xícaras","Tigelas","Tábuas de corte","Facas de cozinha","Potes plásticos ou vidro","Escorredor de louça","Panos de prato","Toalha de mesa","Lixeira com tampa"],
+  "Lavanderia / Limpeza": ["Balde","Bacia","Vassoura","Rodo","Pá de lixo","Mop","Panos de limpeza","Detergente","Desinfetante","Sabão em pó","Amaciante","Multiuso","Varal","Cesto de roupas"],
+  "Banheiro": ["Toalhas de banho","Toalhas de rosto","Tapete antiderrapante","Cortina para box","Porta-escova de dentes","Saboneteira","Dispenser de sabonete líquido","Lixeira pequena","Escova de vaso","Suporte de papel higiênico"],
+  "Geladeira (perecíveis)": ["Leite ou bebidas vegetais","Queijo","Presunto ou peito de frango fatiado","Iogurte","Ovos","Manteiga ou margarina","Banana","Maçã","Laranja","Mamão","Alface","Tomate","Cenoura","Batata","Cebola","Pimentão","Carnes/frango para congelar","Água mineral","Sucos"],
+  "Armário / Despensa": ["Arroz","Feijão","Lentilha","Macarrão","Farinha de trigo","Açúcar","Sal","Óleo de cozinha","Café","Chá","Biscoitos","Bolachas","Milho enlatado","Ervilha enlatada","Atum enlatado","Sardinha enlatada","Pimenta","Orégano","Alho em pó","Caldo de galinha","Molho de tomate","Molho shoyu","Cereais","Aveia"],
+  "Produtos de limpeza": ["Detergente líquido","Sabão em pó","Sabão líquido","Amaciante","Desinfetante","Multiuso","Água sanitária","Esponjas","Escovas","Panos de chão","Flanelas","Sacos de lixo"],
+  "Higiene pessoal": ["Papel higiênico","Sabonete","Shampoo","Condicionador","Pasta de dente","Escovas de dente","Desodorante"],
+  "Compras parciais por semana": ["Arroz","Feijão","Macarrão","Óleo","Sal","Leite","Ovos","Frutas variadas","Verduras básicas","Detergente","Sabonete","Papel higiênico"]
+};
+
+function criarLista() {
+  const container = document.getElementById("lista");
+  for (let sessao in dados) {
+    const button = document.createElement("button");
+    button.className = "accordion";
+    button.textContent = sessao;
+    button.onclick = function() {
+      this.nextElementSibling.style.display = this.nextElementSibling.style.display === "block" ? "none" : "block";
+    };
+
+    const panel = document.createElement("div");
+    panel.className = "panel";
+
+    dados[sessao].forEach(item => {
+      panel.appendChild(criarItem(item));
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.textContent = "Adicionar item";
+    addBtn.onclick = function() {
+      const novo = prompt("Digite o nome do novo item:");
+      if (novo) panel.appendChild(criarItem(novo));
+    };
+    panel.appendChild(addBtn);
+
+    container.appendChild(button);
+    container.appendChild(panel);
+  }
+}
+
+function criarItem(nome) {
+  const div = document.createElement("div");
+  div.className = "item";
+  div.innerHTML = `
+    <span>${nome}</span>
+    <div class="controls">
+      <button onclick="alterarQtd(this,-1)">-</button>
+      <input type="number" value="1" min="0" onchange="updateTotals()">
+      <button onclick="alterarQtd(this,1)">+</button>
+      <input type="number" value="0" placeholder="Preço (PYG)" onchange="updateTotals()">
+      <button onclick="removerItem(this)">🗑️</button>
+    </div>
+  `;
+  return div;
+}
+
+function alterarQtd(btn, delta) {
+  const input = btn.parentNode.querySelector("input[type=number]");
+  input.value = Math.max(0, parseInt(input.value) + delta);
+  updateTotals();
+}
+
+function removerItem(btn) {
+  btn.closest(".item").remove();
+  updateTotals();
+}
+
+function updateTotals() {
+  let totalPYG = 0;
+  document.querySelectorAll(".item").forEach(div => {
+    const qtd = parseInt(div.querySelectorAll("input")[0].value) || 0;
+    const val = parseInt(div.querySelectorAll("input")[1].value) || 0;
+    totalPYG += qtd * val;
+  });
+  const cambio = document.getElementById("cambio").valueAsNumber || 1500;
+  document.getElementById("totalPYG").textContent = "Total em Guarani: " + totalPYG.toLocaleString();
+  document.getElementById("totalBRL").textContent = "Total em Reais: R$ " + (totalPYG / cambio).toFixed(2);
+}
+
+function exportarXLSX() {
+  const linhas = [["Sessão","Item","Quantidade","Preço (PYG)","Total (PYG)"]];
+  document.querySelectorAll(".panel").forEach((panel, i) => {
+    const sessao = document.querySelectorAll(".accordion")[i].textContent;
+    panel.querySelectorAll(".item").forEach(div => {
+      const item = div.querySelector("span").textContent;
+      const qtd = parseInt(div.querySelectorAll("input")[0].value) || 0;
+      const val = parseInt(div.querySelectorAll("input")[1].value) || 0;
+      const total = qtd * val;
+      linhas.push([sessao,item,qtd,val,total]);
+    });
+  });
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Lista");
+  XLSX.writeFile(wb, "lista_compras.xlsx");
+}
+
+criarLista();
+</script>
+
+</body>
+</html>
