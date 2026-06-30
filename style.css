@@ -1,0 +1,88 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: 'Arial', sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Globo girando ── */
+#globeWrap {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  pointer-events: none;
+  perspective: 900px;
+}
+
+#globe {
+  width: 100vmin;
+  height: 100vmin;
+  border-radius: 50%;
+  overflow: hidden;
+  animation: spinGlobe 60s linear infinite;
+  will-change: transform;
+  filter: brightness(0.5) saturate(0.85);
+}
+
+@keyframes spinGlobe {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+
+#globe img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
+}
+
+/* Overlay escuro por cima do globo para suavizar */
+#globeWrap::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    circle at center,
+    rgba(0,0,0,0.10) 0%,
+    rgba(0,5,15,0.55) 60%,
+    rgba(0,5,20,0.85) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.page-wrapper {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+}
+
+#bracketCanvas {
+  position: relative;
+  display: block;
+  cursor: default;
+  z-index: 3;
+}
