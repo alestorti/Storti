@@ -81,8 +81,122 @@ body {
 }
 
 #bracketCanvas {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: block;
   cursor: default;
   z-index: 3;
+  will-change: transform;
+  touch-action: none;
+}
+
+/* ── Toolbar de fases ── */
+#phaseToolbar {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  gap: 5px;
+  background: rgba(5,14,30,0.82);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 5px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.phaseBtn {
+  padding: 5px 11px;
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-family: 'Arial', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.phaseBtn:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.25);
+}
+.phaseBtn.phaseActive {
+  background: rgba(61,130,220,0.22);
+  color: #6abaff;
+  border-color: #3b82d4;
+}
+
+/* ── Barra de zoom ── */
+#zoomBar {
+  position: fixed;
+  bottom: 18px;
+  right: 16px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(5,14,30,0.82);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 5px 8px;
+  backdrop-filter: blur(4px);
+}
+
+#zoomBar button {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 5px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+#zoomBar button:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+#zoomLabel {
+  min-width: 38px;
+  text-align: center;
+  font-family: 'Arial', sans-serif;
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  user-select: none;
+}
+
+/* ── Botão Simular ── */
+#btnSimulate {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: #1a2a1a;
+  color: #6ddc6d;
+  border: 1.5px solid #3a8c3a;
+  border-radius: 6px;
+  font-family: 'Arial', sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+#btnSimulate:hover {
+  background: #223d22;
+  border-color: #5dcc5d;
+  color: #a0ffaa;
+}
+#btnSimulate:active {
+  background: #0f1f0f;
 }

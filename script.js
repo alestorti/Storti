@@ -5,15 +5,63 @@
 const canvas = document.getElementById('bracketCanvas');
 const ctx    = canvas.getContext('2d');
 
-let SIZE, CX, CY;
+// BASE_SIZE = tamanho do canvas a zoom 1× (ocupa 98% do menor lado da janela)
+let BASE_SIZE, SIZE, CX, CY;
+let zoomScale = 1;
+let panX = 0, panY = 0;
+const ZOOM_MIN = 0.5, ZOOM_MAX = 5;
+
 function resize() {
-  SIZE = Math.min(window.innerWidth, window.innerHeight) * 0.98;
+  BASE_SIZE = Math.min(window.innerWidth, window.innerHeight) * 0.98;
+  _applySize();
+}
+resize();
+
+// Recalcula SIZE = BASE_SIZE × zoom e reposiciona o canvas via translate.
+// Canvas em position:absolute top:50% left:50% → seu canto esquerdo/topo
+// começa no centro da viewport. Corrigimos com -SIZE/2 + panX/panY.
+// Sem scale CSS → canvas tem pixels reais em alta resolução → nítido.
+function _applySize() {
+  SIZE = Math.round(BASE_SIZE * zoomScale);
   canvas.width  = SIZE;
   canvas.height = SIZE;
   CX = SIZE / 2;
   CY = SIZE / 2;
+  _applyPan();
 }
-resize();
+
+function _applyPan() {
+  // Desloca o canvas para que seu centro fique sobre o centro da viewport + pan
+  const tx = -SIZE / 2 + panX;
+  const ty = -SIZE / 2 + panY;
+  canvas.style.transform = `translate(${tx}px, ${ty}px)`;
+}
+
+function clampPan() {
+  const maxPan = SIZE / 2;
+  panX = Math.max(-maxPan, Math.min(maxPan, panX));
+  panY = Math.max(-maxPan, Math.min(maxPan, panY));
+}
+
+function setZoom(newScale, originX, originY) {
+  // originX/Y: coordenadas relativas ao centro do canvas (em px de tela)
+  const prev = zoomScale;
+  zoomScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newScale));
+  const ratio = zoomScale / prev;
+  // Mantém o ponto sob o cursor/dedo fixo na tela
+  panX = originX - ratio * (originX - panX);
+  panY = originY - ratio * (originY - panY);
+  clampPan();
+  _applySize();
+  updateZoomUI();
+  render();
+}
+
+function updateZoomUI() {
+  const pct = Math.round(zoomScale * 100);
+  const el = document.getElementById('zoomLabel');
+  if (el) el.textContent = pct + '%';
+}
 
 // ── Polares ───────────────────────────────────────────────────
 const DEG = Math.PI / 180;
@@ -252,6 +300,7 @@ function radLine(r1, r2, ang, color, lw) {
 function drawNode(phase, idx, r2, ang, abbr, highlight, hoverPhase, hoverIdx, nodeSize) {
   const x = px(r2, ang), y = py(r2, ang);
   const radius = nodeSize === 'sm' ? SIZE * 0.009
+               : nodeSize === 'md' ? SIZE * 0.013
                : nodeSize === 'lg' ? SIZE * 0.024
                : SIZE * 0.017;
   const isHover = hoverPhase === phase && hoverIdx === idx;
@@ -516,6 +565,14 @@ function drawTrophy(rd) {
 
 let hoveredNode = { phase: null, idx: null };
 
+// ── Filtro de fase visível ─────────────────────────────────────
+// null = exibir tudo; 'R32'|'R16'|'QF'|'SF'|'FINAL' = somente aquela fase
+let visiblePhase = null;
+
+function phaseVisible(phase) {
+  return visiblePhase === null || visiblePhase === phase;
+}
+
 function renderBracket(rd) {
   hitNodes = []; // limpa a cada frame
 
@@ -539,154 +596,137 @@ function renderBracket(rd) {
   }
 
   // ── R32 (32-avos) ─────────────────────────────────────────
-  // 32 slots de 11.25° — 2 por grupo + 8 melhores 3os
-  // Cada slot tem 2 times: angC ± 3.5°
-  // Cotovelo de grpInner → r32Ring
   const rElbR32 = rd.grpInner - (rd.grpInner - rd.r32Ring) * 0.50;
   const nodeR32 = rd.grpInner - SIZE * 0.001;
 
-  for (let i = 0; i < 32; i++) {
-    const angC  = slotAngle('R32', i);
-    const ang1  = angC - 3.5;
-    const ang2  = angC + 3.5;
-    const m     = bracket.R32[i];
-    const col   = matchColor('R32', i);
+  if (phaseVisible('R32')) {
+    for (let i = 0; i < 32; i++) {
+      const angC  = slotAngle('R32', i);
+      const ang1  = angC - 3.5;
+      const ang2  = angC + 3.5;
+      const m     = bracket.R32[i];
+      const col   = matchColor('R32', i);
 
-    // Linhas de cotovelo
-    radLine(rd.grpInner, rElbR32, ang1, col, 1.2);
-    radLine(rd.grpInner, rElbR32, ang2, col, 1.2);
-    arcStroke(rElbR32, ang1, ang2, col, 1.2);
-    radLine(rElbR32, rd.r32Ring, angC, col, 1.2);
+      radLine(rd.grpInner, rElbR32, ang1, col, 1.2);
+      radLine(rd.grpInner, rElbR32, ang2, col, 1.2);
+      arcStroke(rElbR32, ang1, ang2, col, 1.2);
+      radLine(rElbR32, rd.r32Ring, angC, col, 1.2);
 
-    // Nós dos dois times — fases exclusivas 'R32t1'/'R32t2' por partida
-    const hp = hoveredNode.phase, hi = hoveredNode.idx;
-    drawNode('R32t1', i, nodeR32, ang1, m.t1, m.winner === 1, hp, hi, 'sm');
-    drawNode('R32t2', i, nodeR32, ang2, m.t2, m.winner === 2, hp, hi, 'sm');
-
-    // Placar
-    if (m.score1 || m.score2) scoreBox(rElbR32, angC, m.score1, m.score2, col);
-
-    // Nó de convergência
-    const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
-    drawNode('R32_out', i, rd.r32Ring, angC, winner, !!winner, hp, hi, 'sm');
+      const hp = hoveredNode.phase, hi = hoveredNode.idx;
+      drawNode('R32t1', i, nodeR32, ang1, m.t1, m.winner === 1, hp, hi, 'sm');
+      drawNode('R32t2', i, nodeR32, ang2, m.t2, m.winner === 2, hp, hi, 'sm');
+      if (m.score1 || m.score2) scoreBox(rElbR32, angC, m.score1, m.score2, col);
+      const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
+      drawNode('R32_out', i, rd.r32Ring, angC, winner, !!winner, hp, hi, 'sm');
+    }
   }
 
   // ── R16 (oitavas) ─────────────────────────────────────────
   const rElbR16 = rd.r32Ring - (rd.r32Ring - rd.r16Ring) * 0.55;
   const nodeR16 = rd.r32Ring + SIZE * 0.002;
 
-  for (let i = 0; i < 16; i++) {
-    const angA = slotAngle('R32', i * 2);
-    const angB = slotAngle('R32', i * 2 + 1);
-    const angC = (angA + angB) / 2;
-    const m    = bracket.R16[i];
-    const col  = matchColor('R16', i);
+  if (phaseVisible('R16')) {
+    for (let i = 0; i < 16; i++) {
+      const angA = slotAngle('R32', i * 2);
+      const angB = slotAngle('R32', i * 2 + 1);
+      const angC = (angA + angB) / 2;
+      const m    = bracket.R16[i];
+      const col  = matchColor('R16', i);
 
-    radLine(rd.r32Ring, rElbR16, angA, col, 1.6);
-    radLine(rd.r32Ring, rElbR16, angB, col, 1.6);
-    arcStroke(rElbR16, angA, angB, col, 1.6);
-    radLine(rElbR16, rd.r16Ring, angC, col, 1.6);
+      radLine(rd.r32Ring, rElbR16, angA, col, 1.6);
+      radLine(rd.r32Ring, rElbR16, angB, col, 1.6);
+      arcStroke(rElbR16, angA, angB, col, 1.6);
+      radLine(rElbR16, rd.r16Ring, angC, col, 1.6);
 
-    const hp = hoveredNode.phase, hi = hoveredNode.idx;
-    drawNode('R16t1', i, nodeR16, angA, m.t1, m.winner === 1, hp, hi, 'sm');
-    drawNode('R16t2', i, nodeR16, angB, m.t2, m.winner === 2, hp, hi, 'sm');
-
-    if (m.score1 || m.score2) scoreBox(rElbR16, angC, m.score1, m.score2, col);
-
-    const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
-    drawNode('R16_out', i, rd.r16Ring, angC, winner, !!winner, hp, hi, 'sm');
+      const hp = hoveredNode.phase, hi = hoveredNode.idx;
+      drawNode('R16t1', i, nodeR16, angA, m.t1, m.winner === 1, hp, hi, 'sm');
+      drawNode('R16t2', i, nodeR16, angB, m.t2, m.winner === 2, hp, hi, 'sm');
+      if (m.score1 || m.score2) scoreBox(rElbR16, angC, m.score1, m.score2, col);
+      const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
+      drawNode('R16_out', i, rd.r16Ring, angC, winner, !!winner, hp, hi, 'sm');
+    }
   }
 
   // ── QF (quartas) ──────────────────────────────────────────
   const rElbQF = rd.r16Ring - (rd.r16Ring - rd.qfRing) * 0.55;
 
-  for (let i = 0; i < 8; i++) {
-    const angA = slotAngle('R16', i * 2);
-    const angB = slotAngle('R16', i * 2 + 1);
-    const angC = (angA + angB) / 2;
-    const m    = bracket.QF[i];
-    const col  = matchColor('QF', i);
+  if (phaseVisible('QF')) {
+    for (let i = 0; i < 8; i++) {
+      const angA = slotAngle('R16', i * 2);
+      const angB = slotAngle('R16', i * 2 + 1);
+      const angC = (angA + angB) / 2;
+      const m    = bracket.QF[i];
+      const col  = matchColor('QF', i);
 
-    radLine(rd.r16Ring, rElbQF, angA, col, 2);
-    radLine(rd.r16Ring, rElbQF, angB, col, 2);
-    arcStroke(rElbQF, angA, angB, col, 2);
-    radLine(rElbQF, rd.qfRing, angC, col, 2);
+      radLine(rd.r16Ring, rElbQF, angA, col, 2);
+      radLine(rd.r16Ring, rElbQF, angB, col, 2);
+      arcStroke(rElbQF, angA, angB, col, 2);
+      radLine(rElbQF, rd.qfRing, angC, col, 2);
 
-    const hp = hoveredNode.phase, hi = hoveredNode.idx;
-    drawNode('QFt1', i, rd.r16Ring + SIZE * 0.002, angA, m.t1, m.winner === 1, hp, hi);
-    drawNode('QFt2', i, rd.r16Ring + SIZE * 0.002, angB, m.t2, m.winner === 2, hp, hi);
-
-    if (m.score1 || m.score2) scoreBox(rElbQF, angC, m.score1, m.score2, col);
-
-    const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
-    drawNode('QF_out', i, rd.qfRing, angC, winner, !!winner, hp, hi);
+      const hp = hoveredNode.phase, hi = hoveredNode.idx;
+      drawNode('QFt1', i, rd.r16Ring + SIZE * 0.002, angA, m.t1, m.winner === 1, hp, hi, 'md');
+      drawNode('QFt2', i, rd.r16Ring + SIZE * 0.002, angB, m.t2, m.winner === 2, hp, hi, 'md');
+      if (m.score1 || m.score2) scoreBox(rElbQF, angC, m.score1, m.score2, col);
+      const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
+      drawNode('QF_out', i, rd.qfRing, angC, winner, !!winner, hp, hi, 'md');
+    }
   }
 
   // ── SF (semifinais) ───────────────────────────────────────
   const rElbSF = rd.qfRing - (rd.qfRing - rd.semiRing) * 0.55;
 
-  for (let i = 0; i < 4; i++) {
-    const angA = slotAngle('QF', i * 2);
-    const angB = slotAngle('QF', i * 2 + 1);
-    const angC = (angA + angB) / 2;
-    const m    = bracket.SF[i];
-    const col  = matchColor('SF', i);
+  if (phaseVisible('SF')) {
+    for (let i = 0; i < 4; i++) {
+      const angA = slotAngle('QF', i * 2);
+      const angB = slotAngle('QF', i * 2 + 1);
+      const angC = (angA + angB) / 2;
+      const m    = bracket.SF[i];
+      const col  = matchColor('SF', i);
 
-    radLine(rd.qfRing, rElbSF, angA, col, 2.5);
-    radLine(rd.qfRing, rElbSF, angB, col, 2.5);
-    arcStroke(rElbSF, angA, angB, col, 2.5);
-    radLine(rElbSF, rd.semiRing, angC, col, 2.5);
+      radLine(rd.qfRing, rElbSF, angA, col, 2.5);
+      radLine(rd.qfRing, rElbSF, angB, col, 2.5);
+      arcStroke(rElbSF, angA, angB, col, 2.5);
+      radLine(rElbSF, rd.semiRing, angC, col, 2.5);
 
-    const hp = hoveredNode.phase, hi = hoveredNode.idx;
-    drawNode('SFt1', i, rd.qfRing + SIZE * 0.002, angA, m.t1, m.winner === 1, hp, hi);
-    drawNode('SFt2', i, rd.qfRing + SIZE * 0.002, angB, m.t2, m.winner === 2, hp, hi);
-
-    if (m.score1 || m.score2) scoreBox(rElbSF, angC, m.score1, m.score2, col);
-
-    const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
-    drawNode('SF_out', i, rd.semiRing, angC, winner, !!winner, hp, hi);
+      const hp = hoveredNode.phase, hi = hoveredNode.idx;
+      drawNode('SFt1', i, rd.qfRing + SIZE * 0.002, angA, m.t1, m.winner === 1, hp, hi, 'md');
+      drawNode('SFt2', i, rd.qfRing + SIZE * 0.002, angB, m.t2, m.winner === 2, hp, hi, 'md');
+      if (m.score1 || m.score2) scoreBox(rElbSF, angC, m.score1, m.score2, col);
+      const winner = m.winner === 1 ? m.t1 : m.winner === 2 ? m.t2 : null;
+      drawNode('SF_out', i, rd.semiRing, angC, winner, !!winner, hp, hi, 'md');
+    }
   }
 
   // ── FINAL ─────────────────────────────────────────────────
-  const angA  = slotAngle('SF', 0);
-  const angB  = slotAngle('SF', 3); // SF[0] e SF[3] são opostos
-  // As duas semis que chegam na final: SF_out[0] e SF_out[1]
-  const sfAngA = (slotAngle('QF', 0) + slotAngle('QF', 1)) / 2;
-  const sfAngB = (slotAngle('QF', 2) + slotAngle('QF', 3)) / 2;
-  const sfAngC = slotAngle('SF', 2); // vencedor da outra metade
-  const rElbFinal = rd.semiRing - (rd.semiRing - rd.finalRing) * 0.55;
-
-  // Pega os 2 nós de saída das semis
   const sfOut0ang = (slotAngle('QF', 0) + slotAngle('QF', 1)) / 2;
   const sfOut1ang = (slotAngle('QF', 2) + slotAngle('QF', 3)) / 2;
   const sfOut2ang = (slotAngle('QF', 4) + slotAngle('QF', 5)) / 2;
   const sfOut3ang = (slotAngle('QF', 6) + slotAngle('QF', 7)) / 2;
-  // SF[0] ← QF[0]+QF[1], SF[1] ← QF[2]+QF[3], SF[2] ← QF[4]+QF[5], SF[3] ← QF[6]+QF[7]
   const sfMids = [
     (sfOut0ang + sfOut1ang) / 2,
     (sfOut2ang + sfOut3ang) / 2,
   ];
-  // Final: SF[0]+SF[1] vencedor vs SF[2]+SF[3] vencedor
-  const sfFinalAngA = sfMids[0]; // ângulo do nó de saída SF grupo 0
-  const sfFinalAngB = sfMids[1]; // ângulo do nó de saída SF grupo 1
-  const finalAngC   = (sfFinalAngA + sfFinalAngB) / 2 + 
+  const sfFinalAngA = sfMids[0];
+  const sfFinalAngB = sfMids[1];
+  const finalAngC   = (sfFinalAngA + sfFinalAngB) / 2 +
                       (Math.abs(sfFinalAngB - sfFinalAngA) > 180 ? 180 : 0);
-
+  const rElbFinal = rd.semiRing - (rd.semiRing - rd.finalRing) * 0.55;
   const mFinal = bracket.FINAL[0];
 
-  radLine(rd.semiRing, rElbFinal, sfFinalAngA, C.goldBrt, 3);
-  radLine(rd.semiRing, rElbFinal, sfFinalAngB, C.goldBrt, 3);
-  arcStroke(rElbFinal, Math.min(sfFinalAngA, sfFinalAngB),
-                        Math.max(sfFinalAngA, sfFinalAngB), C.goldBrt, 3);
-  radLine(rElbFinal, rd.finalRing, finalAngC, C.goldBrt, 3);
-  radLine(rd.finalRing, 0, finalAngC, C.goldBrt, 3);
+  if (phaseVisible('FINAL')) {
+    radLine(rd.semiRing, rElbFinal, sfFinalAngA, C.goldBrt, 3);
+    radLine(rd.semiRing, rElbFinal, sfFinalAngB, C.goldBrt, 3);
+    arcStroke(rElbFinal, Math.min(sfFinalAngA, sfFinalAngB),
+                          Math.max(sfFinalAngA, sfFinalAngB), C.goldBrt, 3);
+    radLine(rElbFinal, rd.finalRing, finalAngC, C.goldBrt, 3);
+    radLine(rd.finalRing, 0, finalAngC, C.goldBrt, 3);
 
-  const hpF = hoveredNode.phase, hiF = hoveredNode.idx;
-  drawNode('FINt1', 0, rd.semiRing + SIZE * 0.002, sfFinalAngA, mFinal.t1, mFinal.winner === 1, hpF, hiF, 'lg');
-  drawNode('FINt2', 0, rd.semiRing + SIZE * 0.002, sfFinalAngB, mFinal.t2, mFinal.winner === 2, hpF, hiF, 'lg');
-
-  if (mFinal.score1 || mFinal.score2)
-    scoreBox(rElbFinal, finalAngC, mFinal.score1, mFinal.score2, C.goldBrt);
+    const hpF = hoveredNode.phase, hiF = hoveredNode.idx;
+    drawNode('FINt1', 0, rd.semiRing + SIZE * 0.002, sfFinalAngA, mFinal.t1, mFinal.winner === 1, hpF, hiF, 'lg');
+    drawNode('FINt2', 0, rd.semiRing + SIZE * 0.002, sfFinalAngB, mFinal.t2, mFinal.winner === 2, hpF, hiF, 'lg');
+    if (mFinal.score1 || mFinal.score2)
+      scoreBox(rElbFinal, finalAngC, mFinal.score1, mFinal.score2, C.goldBrt);
+  }
 }
 
 // ── RENDER PRINCIPAL ──────────────────────────────────────────
@@ -701,13 +741,16 @@ function render() {
   drawTrophy(rd);
 }
 
+// ── Estado de drag / pan ──────────────────────────────────────
+let mouseDown = false;
+let _wasDrag  = false;
+
 // ── INTERAÇÃO — hover ─────────────────────────────────────────
 canvas.addEventListener('mousemove', e => {
+  if (mouseDown) return; // ignorar hover durante drag
   const rect = canvas.getBoundingClientRect();
-  const scaleX = SIZE / rect.width;
-  const scaleY = SIZE / rect.height;
-  const mx = (e.clientX - rect.left) * scaleX;
-  const my = (e.clientY - rect.top)  * scaleY;
+  const mx = (e.clientX - rect.left);
+  const my = (e.clientY - rect.top);
   const n  = findNode(mx, my);
   const newPhase = n ? n.phase : null;
   const newIdx   = n ? n.idx   : null;
@@ -720,11 +763,10 @@ canvas.addEventListener('mousemove', e => {
 
 // ── INTERAÇÃO — clique ────────────────────────────────────────
 canvas.addEventListener('click', e => {
+  if (_wasDrag) { _wasDrag = false; return; } // ignorar se foi drag
   const rect = canvas.getBoundingClientRect();
-  const scaleX = SIZE / rect.width;
-  const scaleY = SIZE / rect.height;
-  const mx = (e.clientX - rect.left) * scaleX;
-  const my = (e.clientY - rect.top)  * scaleY;
+  const mx = (e.clientX - rect.left);
+  const my = (e.clientY - rect.top);
   const n  = findNode(mx, my);
   if (!n) return;
   openModal(n.phase, n.idx);
@@ -1037,9 +1079,218 @@ const styleEl = document.createElement('style');
 styleEl.textContent = modalCSS;
 document.head.appendChild(styleEl);
 
+// ── SIMULAÇÃO RANDÔMICA ───────────────────────────────────────
+
+function simulateRandom() {
+  // 1. Sorteia a classificação dentro de cada grupo: [0]=1º, [1]=2º, [2]=3º, [3]=4º
+  const groupResults = GROUPS.map(g => [...g.teams].sort(() => Math.random() - 0.5));
+
+  // 2. Calcula quantos slots do R32 cada grupo possui (pelo ângulo central do slot).
+  //    slot i → angC = 11.25×i + 5.625 → grupo = floor(angC / 30)
+  //    Grupos com 3 slots recebem 1º+2º+3º; com 2 slots recebem 1º+2º.
+  //    Total garantido = 32 classificados exatos.
+  const stepR32 = 360 / 32;
+  const slotsPerGroup = Array(GROUPS.length).fill(0);
+  for (let i = 0; i < 32; i++) {
+    const gi = Math.floor((i * stepR32 + stepR32 / 2) / DEG_PER_GROUP) % GROUPS.length;
+    slotsPerGroup[gi]++;
+  }
+
+  // 3. Monta lista global de 32 classificados, percorrendo grupos em ordem.
+  //    Cada grupo contribui com tantos times quantos slots possui (2 ou 3).
+  const classified32 = [];
+  for (let gi = 0; gi < GROUPS.length; gi++) {
+    for (let pos = 0; pos < slotsPerGroup[gi]; pos++) {
+      classified32.push(groupResults[gi][pos]);
+    }
+  }
+  // classified32 tem exatamente 32 times (verificado: sum(slotsPerGroup) = 32).
+
+  // 4. Distribui os 32 times como pares (t1, t2) nas 32 partidas do R32.
+  //    Cada partida i recebe: t1 = classified32[i], t2 = classified32[(i+16)%32]
+  //    Isso cria confrontos entre a metade "direita" e a metade "esquerda" do bracket,
+  //    garantindo que todos os 32 slots fiquem preenchidos sem colisão.
+  bracket = emptyBracket();
+  for (let i = 0; i < 32; i++) {
+    bracket.R32[i].t1 = classified32[i];
+    bracket.R32[i].t2 = classified32[(i + 16) % 32];
+  }
+
+  // 5. Simula cada fase em ordem (R32 → R16 → QF → SF → FINAL)
+  for (const phase of ['R32', 'R16', 'QF', 'SF', 'FINAL']) {
+    for (let i = 0; i < bracket[phase].length; i++) {
+      const m = bracket[phase][i];
+      if (!m.t1 || !m.t2) continue;
+      let s1 = Math.floor(Math.random() * 5);
+      let s2 = Math.floor(Math.random() * 5);
+      while (s1 === s2) s2 = Math.floor(Math.random() * 5);
+      m.score1 = String(s1);
+      m.score2 = String(s2);
+      m.winner = s1 > s2 ? 1 : 2;
+      propagate(phase, i);
+    }
+  }
+
+  saveBracket();
+  render();
+}
+
+// ── BOTÃO SIMULAR ─────────────────────────────────────────────
+(function createSimBtn() {
+  const btn = document.createElement('button');
+  btn.id          = 'btnSimulate';
+  btn.textContent = '🎲 Simular';
+  btn.title       = 'Gera um resultado aleatório até a Final';
+  btn.addEventListener('click', simulateRandom);
+  document.body.appendChild(btn);
+})();
+
+// ── ZOOM — scroll (desktop) ───────────────────────────────────
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const ox = e.clientX - (rect.left + rect.width  / 2);
+  const oy = e.clientY - (rect.top  + rect.height / 2);
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  setZoom(zoomScale * factor, ox, oy);
+}, { passive: false });
+
+// ── ZOOM — pinch (mobile) ─────────────────────────────────────
+let lastPinchDist = null;
+let lastPinchMidX = 0, lastPinchMidY = 0;
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0, dragPanX = 0, dragPanY = 0;
+
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    const t0 = e.touches[0], t1 = e.touches[1];
+    lastPinchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const rect = canvas.getBoundingClientRect();
+    lastPinchMidX = ((t0.clientX + t1.clientX) / 2) - (rect.left + rect.width  / 2);
+    lastPinchMidY = ((t0.clientY + t1.clientY) / 2) - (rect.top  + rect.height / 2);
+    isDragging = false;
+  } else if (e.touches.length === 1) {
+    isDragging = true;
+    dragStartX = e.touches[0].clientX;
+    dragStartY = e.touches[0].clientY;
+    dragPanX = panX;
+    dragPanY = panY;
+  }
+}, { passive: true });
+
+canvas.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    if (lastPinchDist) {
+      setZoom(zoomScale * (dist / lastPinchDist), lastPinchMidX, lastPinchMidY);
+    }
+    lastPinchDist = dist;
+    isDragging = false;
+  } else if (e.touches.length === 1 && isDragging) {
+    e.preventDefault();
+    panX = dragPanX + (e.touches[0].clientX - dragStartX);
+    panY = dragPanY + (e.touches[0].clientY - dragStartY);
+    clampPan();
+    _applyPan();
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (e.touches.length < 2) lastPinchDist = null;
+  if (e.touches.length === 0) isDragging = false;
+}, { passive: true });
+
+// ── PAN — mouse drag (desktop) ────────────────────────────────
+let mouseDragStartX = 0, mouseDragStartY = 0, mousePanX = 0, mousePanY = 0;
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  mouseDown = true;
+  _wasDrag  = false;
+  mouseDragStartX = e.clientX;
+  mouseDragStartY = e.clientY;
+  mousePanX = panX;
+  mousePanY = panY;
+  canvas.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!mouseDown) return;
+  const dx = e.clientX - mouseDragStartX;
+  const dy = e.clientY - mouseDragStartY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _wasDrag = true;
+  panX = mousePanX + dx;
+  panY = mousePanY + dy;
+  clampPan();
+  _applyPan();
+});
+window.addEventListener('mouseup', () => {
+  mouseDown = false;
+  canvas.style.cursor = hoveredNode.phase ? 'pointer' : 'default';
+});
+
+// ── CONTROLES DE FASE E ZOOM ──────────────────────────────────
+(function createControls() {
+  // Toolbar de filtro de fases
+  const toolbar = document.createElement('div');
+  toolbar.id = 'phaseToolbar';
+
+  const phases = [
+    { key: null,    label: 'Todos' },
+    { key: 'R32',   label: 'R32'   },
+    { key: 'R16',   label: 'R16'   },
+    { key: 'QF',    label: 'QF'    },
+    { key: 'SF',    label: 'Semi'  },
+    { key: 'FINAL', label: 'Final' },
+  ];
+
+  phases.forEach(({ key, label }) => {
+    const btn = document.createElement('button');
+    btn.className = 'phaseBtn' + (key === null ? ' phaseActive' : '');
+    btn.textContent = label;
+    btn.dataset.phase = key ?? '';
+    btn.addEventListener('click', () => {
+      visiblePhase = key;
+      document.querySelectorAll('.phaseBtn').forEach(b =>
+        b.classList.toggle('phaseActive', b.dataset.phase === (key ?? ''))
+      );
+      render();
+    });
+    toolbar.appendChild(btn);
+  });
+
+  document.body.appendChild(toolbar);
+
+  // Controles de zoom
+  const zoomBar = document.createElement('div');
+  zoomBar.id = 'zoomBar';
+  zoomBar.innerHTML = `
+    <button id="zoomOut" title="Diminuir">−</button>
+    <span id="zoomLabel">100%</span>
+    <button id="zoomIn"  title="Aumentar">+</button>
+    <button id="zoomReset" title="Resetar zoom">⤢</button>
+  `;
+  document.body.appendChild(zoomBar);
+
+  document.getElementById('zoomIn').addEventListener('click', () =>
+    setZoom(zoomScale * 1.25, 0, 0)
+  );
+  document.getElementById('zoomOut').addEventListener('click', () =>
+    setZoom(zoomScale / 1.25, 0, 0)
+  );
+  document.getElementById('zoomReset').addEventListener('click', () => {
+    zoomScale = 1; panX = 0; panY = 0;
+    _applySize(); updateZoomUI(); render();
+  });
+})();
+
 // ── INIT ──────────────────────────────────────────────────────
 loadBracket();
 preload();
 render();
 
 window.addEventListener('resize', () => { resize(); render(); });
+
+// Aplica transform inicial (zoom 1 sem pan)
+_applySize();
